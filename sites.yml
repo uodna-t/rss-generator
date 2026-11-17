@@ -1,0 +1,29 @@
+# フィード化するサイトの設定。サイトを増やすときは sites: に項目を追加します。
+#
+# id            : 出力ファイル名に使われます (public/<id>.atom.xml, public/<id>.rss.xml)
+# title         : フィードのタイトル
+# url           : 更新情報の一覧ページ
+# link_prefixes : 記事リンクとみなすURLのパス接頭辞(自動検出モード用)。
+#                 省略すると url のパスが使われます。
+# wait_for      : 描画完了を待つCSSセレクタ(省略可)。一覧が遅れて出るサイト向け。
+# selectors     : 自動検出でうまく拾えないときだけ指定します。
+#                 item  : 記事1件ぶんの要素
+#                 link  : item内のリンク(省略時は a[href])
+#                 title : item内のタイトル要素(省略時はリンクの文字)
+#                 date  : item内の日付要素(省略時は item 全体から日付を探す)
+# max_items     : フィードに載せる最大件数(既定 30)
+
+sites:
+  - id: mobilitas-news
+    title: モビリタからのお知らせ
+    url: https://www.toyota.co.jp/mobilitas/news/
+    # canonical が moblitas(iなし)になっているため、両方の綴りを許可しておく
+    link_prefixes:
+      - /mobilitas/news/
+      - /moblitas/news/
+    max_items: 30
+    # wait_for: "a[href*='/news/']"
+    # selectors:
+    #   item: "li.news-item"
+    #   title: ".title"
+    #   date: "time"

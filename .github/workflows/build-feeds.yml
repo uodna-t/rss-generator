@@ -1,0 +1,101 @@
+name: build-feeds
+
+on:
+  schedule:
+    - cron: "17 */3 * * *" # 3時間ごと(UTC)。毎時0分は混むので少しずらしています
+  workflow_dispatch:
+    inputs:
+      debug:
+        description: "描画後のHTMLを成果物として保存する"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write # feed-state ブランチへの push 用(master には push しません)
+  pages: write
+  id-token: write
+
+concurrency:
+  group: build-feeds
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      # Python は pyproject.toml の requires-python に合わせて uv が用意する
+      - name: Install dependencies
+        run: |
+          uv sync
+          uv run playwright install --with-deps chromium
+
+      # 状態(state.json)は master ではなく feed-state ブランチに置く。
+      # これで master を「PR必須」の保護対象にしても、このワークフローが影響を受けない。
+      # ブランチがなければ初回に自動で作る。
+      - name: Prepare state branch
+        run: |
+          if git ls-remote --exit-code --heads origin feed-state >/dev/null 2>&1; then
+            git fetch --depth=50 origin feed-state
+            git worktree add -B feed-state state-branch FETCH_HEAD
+          else
+            git worktree add --detach state-branch HEAD
+            git -C state-branch checkout --orphan feed-state
+            git -C state-branch rm -rf --quiet .
+            echo '{}' > state-branch/state.json
+          fi
+
+      # 失敗しても公開とstate保存は続け、最後にジョブを失敗扱いにする
+      - name: Build feeds
+        id: build
+        continue-on-error: true
+        env:
+          FEED_BASE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+        run: uv run build_feeds.py --state state-branch/state.json
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Commit state and keepalive
+        run: |
+          cd state-branch
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update feed state"
+          fi
+          # 最後のコミットから45日以上空いたら空コミットを入れ、60日ルールで止まるのを防ぐ
+          last=$(git log -1 --format=%ct)
+          now=$(date +%s)
+          if [ $((now - last)) -gt $((45 * 86400)) ]; then
+            git commit --allow-empty -m "chore: keepalive"
+          fi
+          git push origin HEAD:refs/heads/feed-state
+
+      - name: Save debug output
+        if: ${{ steps.build.outcome == 'failure' || inputs.debug == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-html
+          path: debug
+          if-no-files-found: ignore
+
+      - name: Fail if build failed
+        if: ${{ steps.build.outcome == 'failure' }}
+        run: |
+          echo "フィード生成に失敗しました。debug-html 成果物のHTMLを確認してください。"
+          exit 1

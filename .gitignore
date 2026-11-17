@@ -1,0 +1,7 @@
+.venv/
+public/
+debug/
+state-branch/
+# 状態ファイルは feed-state ブランチで管理する。手元実行で出る state.json は含めない
+state.json
+__pycache__/
